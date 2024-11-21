@@ -1,7 +1,1 @@
-networkx
-pydot>=1.4.1
-future
-pyasn1
-cryptography
 lxml>=4.3.0
-asn1crypto>=0.24.0

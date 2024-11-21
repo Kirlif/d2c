@@ -15,40 +15,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from __future__ import print_function
-from builtins import next
-from builtins import object
-from builtins import range
-from builtins import str
-
 from dex2c.basic_blocks import fill_node_from_block
 
 import logging
 from collections import defaultdict
-import androguard.core.androconf as androconf
 import dex2c.util as util
 from androguard.core.analysis import analysis
-from androguard.core.bytecodes import apk, dvm
 from dex2c.graph import construct
 from dex2c.instruction import Param, ThisParam, MoveParam, Phi, Variable, LoadConstant
 from dex2c.writer import Writer
-from androguard.util import read
 
 DEBUG = False
 # DEBUG = True
 
 logger = logging.getLogger("dex2c.compiler")
-
-
-def auto_vm(filename):
-    ret = androconf.is_android(filename)
-    if ret == "APK":
-        return dvm.DalvikVMFormat(apk.APK(filename).get_dex())
-    elif ret == "DEX":
-        return dvm.DalvikVMFormat(read(filename))
-    elif ret == "DEY":
-        return dvm.DalvikVMFormat(read(filename))
-    return None
 
 
 class RegisterAllocator(object):
@@ -148,14 +128,6 @@ class IrBuilder(object):
                 self.lparams.append(param)
                 num_param += util.get_type_size(ptype)
 
-        if DEBUG:
-            from androguard.core import bytecode
-
-            bytecode.method2png(
-                "graphs/%s#%s.png" % (self.cls_name.split("/")[-1][:-1], self.name),
-                methanalysis,
-            )
-
     def get_return_type(self):
         return self.type
 
@@ -168,15 +140,8 @@ class IrBuilder(object):
 
         graph = construct(self.start_block)
         self.graph = graph
-        if DEBUG:
-            util.create_png(self.cls_name, self.name, graph, "blocks")
-
-        # if __debug__:
-        #     util.create_png(self.cls_name, self.name, graph, 'blocks')
 
         self.build()
-        if DEBUG:
-            util.create_png(self.cls_name, self.name + "ir", graph, "blocks")
 
         irmethod = IrMethod(graph, self.method)
         irmethod.rtype = self.get_return_type()
@@ -204,15 +169,9 @@ class IrBuilder(object):
             todo.extend(self.graph.all_sucs(node))
 
         self.remove_trivial_phi()
-        if DEBUG:
-            util.create_png(
-                self.cls_name, self.name + "_before_hack", self.graph, "blocks"
-            )
+
         self.hack_polymorphic_constant()
-        if DEBUG:
-            util.create_png(
-                self.cls_name, self.name + "_after_hack", self.graph, "blocks"
-            )
+
         self.infer_type()
         self.fix_const_type()
         self.verify_operand_type()
@@ -514,49 +473,6 @@ class DvClass(object):
 
     def __repr__(self):
         return "Class(%s)" % self.name
-
-
-class DvMachine(object):
-    def __init__(self, name):
-        vm = auto_vm(name)
-        if vm is None:
-            raise ValueError("Format not recognised: %s" % name)
-        self.vma = analysis.Analysis(vm)
-        self.classes = dict(
-            (dvclass.get_name(), dvclass) for dvclass in vm.get_classes()
-        )
-
-    def get_classes(self):
-        return list(self.classes.keys())
-
-    def get_class(self, class_name):
-        for name, klass in self.classes.items():
-            if class_name in name:
-                if isinstance(klass, DvClass):
-                    return klass
-                dvclass = self.classes[name] = DvClass(klass, self.vma)
-                return dvclass
-
-    def process(self):
-        for name, klass in self.classes.items():
-            logger.info("Processing class: %s", name)
-            if isinstance(klass, DvClass):
-                klass.process()
-            else:
-                dvclass = self.classes[name] = DvClass(klass, self.vma)
-                dvclass.process()
-
-    def show_source(self):
-        for klass in self.classes.values():
-            klass.show_source()
-
-    def process_and_show(self):
-        for name, klass in sorted(self.classes.items()):
-            logger.info("Processing class: %s", name)
-            if not isinstance(klass, DvClass):
-                klass = DvClass(klass, self.vma)
-            klass.process()
-            klass.show_source()
 
 
 class Dex2C:

@@ -13,10 +13,12 @@
     return-void
 .end method
 
-.method public native constructor <init>()V
-.end method
+.method public constructor <init>()V
+    .locals 1
 
-.method public static final native initDcc()V
+    invoke-direct {p0}, Landroid/app/Application;-><init>()V
+
+    return-void
 .end method
 
 

@@ -1,6 +1,3 @@
-from __future__ import division
-
-from builtins import range
 #
 # Copyright (c) 2012 Geoffroy Gueguen <geoffroy.gueguen@gmail.com>
 # All Rights Reserved.
@@ -16,7 +13,6 @@ from builtins import range
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from builtins import str
 from collections import defaultdict
 
 from dex2c.basic_blocks import (IrBasicBlock, LandingPad)
@@ -169,28 +165,6 @@ class Graph(object):
         visited = set()
         for _, node in _visit(self.entry, 1):
             yield node
-
-    def draw(self, name, dname, draw_branches=True):
-        from pydot import Dot, Edge,Node
-        g = Dot()
-        g.set_node_defaults(color='lightgray',
-                            style='filled',
-                            shape='box',
-                            fontname='Courier',
-                            fontsize='10')
-        if len(self.nodes) == 1:
-            g.add_node(Node(str(self.nodes[0])))
-        else:
-            for node in sorted(self.nodes, key=lambda x: x.num):
-                for suc in self.sucs(node):
-                    g.add_edge(Edge(str(node), str(suc), color='blue'))
-                for except_node in self.catch_edges.get(node, []):
-                    g.add_edge(Edge(str(node),
-                                    str(except_node),
-                                    color='black',
-                                    style='dashed'))
-
-        g.write_png('%s/%s.png' % (dname, name))
 
     def immediate_dominators(self):
         return dom_lt(self)

@@ -259,35 +259,12 @@ bool d2c_resolve_field(JNIEnv *env, jclass *cached_class, jfieldID *cached_field
     return *cached_field == NULL;
 }
 
-extern "C" {
-
-JNIEXPORT void JNICALL
-Java_amimo_dcc_DccApplication_initDcc__(JNIEnv *env, jobject thiz) {
-
-}
-
-JNIEXPORT void JNICALL
-Java_amimo_dcc_DccApplication__0003cinit_0003e__(JNIEnv *env, jobject thiz) {
-    auto instance = (jobject) env->NewLocalRef(thiz);
-    jclass application = env->FindClass("android/app/Application");
-    jmethodID init = env->GetMethodID(application, "<init>", "()V");
-
-    env->CallVoidMethodA(instance, init, {});
-}
-}
-
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     JNIEnv *env;
 
     if (vm->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
-
-    jclass clz = env->FindClass("amimo/dcc/DccApplication");
-
-    if (!clz)
-        exit(1);
-
     cache_well_known_classes(env);
     const char *result = dynamic_register_compile_methods(env);
     if (result != nullptr)

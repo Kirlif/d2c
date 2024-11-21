@@ -250,13 +250,6 @@ def get_method_triple(method, return_type=True):
         return cls_name, name, proto
 
 
-def create_png(cls_name, meth_name, graph, dir_name='graphs2'):
-    m_name = ''.join(x for x in meth_name if x.isalnum())
-    m_name = m_name.replace('<', '_').replace('>', '_')
-    name = ''.join((cls_name.split('/')[-1][:-1], '#', m_name))
-    graph.draw(name, dir_name)
-
-
 def get_native_type(jtype):
     res = DECL_JNI_TYPE.get(jtype)
     if res is None:
