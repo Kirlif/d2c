@@ -25,6 +25,7 @@
 - cleaned androguard from useless parts and removed dependencies
 - DEX file support: creates a ZIP archive of the built libraries and dex file
 - skip constructors by default
+- the application class is the loader ; if not defined or absent from dex, the custom loader is used
 - --allow-init option: do not skip constructors
 - --lib-name option: edit the library name, default: stub
 - --output default value is « output.apk » for an APK else « output.zip » for a DEX
