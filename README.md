@@ -25,8 +25,8 @@
 - cleaned androguard from useless parts and removed dependencies
 - DEX file support: creates a ZIP archive of the built libraries and dex file
 - skip constructors by default
-- --allow-init option: Do not skip init methods
+- --allow-init option: do not skip constructors
 - --lib-name otion: edit the library name, default: stub
-- --output default value is « output.apk » for an APK else output.zip for a DEX
+- --output default value is « output.apk » for an APK else « output.zip » for a DEX
 - --input only is required 
 - all options can be configured in dcc.cfg ; options passed to the command line have priority
