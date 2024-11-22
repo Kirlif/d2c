@@ -257,7 +257,7 @@ class DCC:
     ):
         self.input_file = input_file
         self.out_file = out_file
-        self.is_apk = is_apk(self.input_file)
+        self.is_apk, self.min_sdk = is_apk(self.input_file)
         self.is_dex, self.api = (False, -1) if self.is_apk else is_dex(self.input_file)
         self.obfus = obfus
         self.dynamic_register = dynamic_register
@@ -358,6 +358,7 @@ class DCC:
             fp.writelines(code_lines)
 
     def native_compiled_dexes(self):
+        Logger.info(" Editing smali files")
         todo = []
         if self.is_apk:
             classes_output = list(
@@ -469,10 +470,11 @@ class DCC:
                     return filePath
         return ""
 
-    def get_dex_files_and_adjust_application_mk(self):
+    def get_dex_files_and_adjust_mk_files(self):
         supported_abis = {"armeabi-v7a", "arm64-v8a", "x86_64", "x86"}
         depreacated_abis = {"armeabi"}
         available_abis = set()
+        pattern_abi = ""
         Logger.info(" Reading dex files")
         if self.is_apk:
             with open(self.input_file, "rb") as f:
@@ -484,43 +486,60 @@ class DCC:
                     zip_file.namelist(),
                 )
             ]
+            if not self.ignore_app_lib_abis:
+                Logger.info(" Adjusting Application.mk file using available abis from apk")
+                for file_name in zip_file.namelist():
+                    if file_name.startswith("lib/"):
+                        abi_name = file_name.split("/")[1].strip()
+                        if len(file_name.split("/")) <= 2:
+                            continue
+                        if abi_name in supported_abis:
+                            available_abis.add(abi_name)
+                        elif abi_name in depreacated_abis:
+                            Logger.warning(
+                                " ABI 'armeabi' is depreacated, using 'armeabi-v7a' instead"
+                            )
+                            available_abis.add("armeabi-v7a")
+                        else:
+                            raise Exception(
+                                f" ABI '{abi_name}' is unsupported, please remove it from apk or use flag --force-keep-libs and try again"
+                            )
+                if len(available_abis) == 0:
+                    Logger.info(
+                        " No lib abis found in apk, using the ones defined in Application.mk file"
+                    )
+                else:
+                    pattern_abi = re.compile(r"APP_ABI *:=.*\n")
+                    replacement_abi = f"APP_ABI := {' '.join(available_abis)}\n"
         else:
             with open(self.input_file, "rb") as f:
                 dex = f.read()
             dex_files = [dvm.DalvikVMFormat(dex)]
-        if self.is_apk and not self.ignore_app_lib_abis:
-            Logger.info(" Adjusting Application.mk file using available abis from apk")
-            for file_name in zip_file.namelist():
-                if file_name.startswith("lib/"):
-                    abi_name = file_name.split("/")[1].strip()
-                    if len(file_name.split("/")) <= 2:
-                        continue
-                    if abi_name in supported_abis:
-                        available_abis.add(abi_name)
-                    elif abi_name in depreacated_abis:
-                        Logger.warning(
-                            " ABI 'armeabi' is depreacated, using 'armeabi-v7a' instead"
-                        )
-                        available_abis.add("armeabi-v7a")
-                    else:
-                        raise Exception(
-                            f" ABI '{abi_name}' is unsupported, please remove it from apk or use flag --force-keep-libs and try again"
-                        )
-            if len(available_abis) == 0:
-                Logger.info(
-                    " No lib abis found in apk, using the ones defined in Application.mk file"
-                )
-                return dex_files
-            application_mk_path = "project/jni/Application.mk"
-            temp_application_mk_path = make_temp_file("-application.mk")
-            with open(application_mk_path, "r") as application_mk_file:
-                with open(temp_application_mk_path, "w") as temp_application_mk_file:
-                    for line in application_mk_file:
-                        if line.startswith("APP_ABI"):
-                            line = "APP_ABI := " + " ".join(available_abis) + "\n"
-                        temp_application_mk_file.write(line)
-            remove(application_mk_path)
-            copy(temp_application_mk_path, application_mk_path)
+            Logger.info(" using abis defined in Application.mk file")
+        pattern_platform = re.compile(r"APP_PLATFORM *:=.*\n")
+        replacement_platform = f"APP_PLATFORM := {self.min_sdk}\n"            
+        with open("project/jni/Application.mk", "r+") as f:
+            filedata = f.read()
+            if pattern_abi:
+                match = pattern_abi.search(filedata)
+                filedata = filedata.replace(match.group(), replacement_abi)
+            match = pattern_platform.search(filedata)
+            filedata = filedata.replace(match.group(), replacement_platform)
+            f.seek(0)
+            f.write(filedata)
+            f.truncate()
+        pattern = re.compile(r"LOCAL_MODULE *:= *[\w\W]+?\n")
+        replacement = f"LOCAL_MODULE := {self.lib_name}\n"
+        if not pattern.match(replacement):
+            Logger.error(" Invalid lib_name value in dcc.cfg")
+            return
+        with open("project/jni/Android.mk", "r+") as f:
+            android_mk_file = f.read()
+            match = pattern.search(android_mk_file)
+            filedata = android_mk_file.replace(match.group(), replacement)
+            f.seek(0)
+            f.write(filedata)
+            f.truncate()
         return dex_files
 
     def write_dummy_dynamic_register(self):
@@ -609,20 +628,17 @@ class DCC:
                 self.custom_loader,
             )
             return
-        android_mk_file_path = "project/jni/Android.mk"
-        pattern = re.compile(r"LOCAL_MODULE *:= [\w\W]+?\n")
-        replacement = f"LOCAL_MODULE:= {self.lib_name}\n"
-        if not pattern.match(replacement):
-            Logger.error(" Invalid lib_name value in dcc.cfg")
-            return
-        with open(android_mk_file_path, "r+") as f:
-            android_mk_file = f.read()
-            match = pattern.search(android_mk_file)
-            filedata = android_mk_file.replace(match.group(), replacement)
-            f.seek(0)
-            f.write(filedata)
-            f.truncate()
-        self.dex_files = self.get_dex_files_and_adjust_application_mk()
+        if self.is_dex:
+            match self.api:
+                case "23":
+                    self.min_sdk = "21"
+                case "25":
+                    self.min_sdk = "24"
+                case "27":
+                    self.min_sdk = "26"
+                case _:
+                    self.min_sdk = "28"          
+        self.dex_files = self.get_dex_files_and_adjust_mk_files()
         self.compiled_methods, self.method_prototypes, errors = self.compile_dex()
         if errors:
             Logger.warning(" ================================")
@@ -661,7 +677,7 @@ class DCC:
             APKEditor.compile_dex(self.decompiled_dir, self.api, output_dex)
             make_archive(path.splitext(self.out_file)[0], "zip", self.dex_dir)
             Logger.info(f" Completed: {self.out_file}")
-        if self.is_apk:
+        else:
             self.decompiled_dir = APKEditor.decompile_apk(self.input_file)
             self.native_compiled_dexes()
             self.copy_compiled_libs()
@@ -930,10 +946,10 @@ def move_unsigned(unsigned_apk, signed_apk):
 def is_apk(name):
     try:
         apk = ZipFile(name, mode="r")
-        namelist = apk.namelist()
-        return all([f in namelist for f in ("AndroidManifest.xml", "classes.dex")])
+        min_sdk = APKEditor.get_info(name, "-min-sdk-version")
+        return all([f in apk.namelist() for f in ("AndroidManifest.xml", "classes.dex")]), min_sdk
     except:
-        return False
+        return False, "-1"
 
 
 def is_dex(name):
@@ -944,7 +960,7 @@ def is_dex(name):
         match = pat.match(magic)
         return True, get_api_from_dex(int(match.group(1).decode()))
     except:
-        return False, -1
+        return False, "-1"
 
 
 def get_api_from_dex(i):
