@@ -31,3 +31,4 @@
 - --output default value is « output.apk » for an APK else « output.zip » for a DEX
 - --input only is required 
 - all options can be configured in dcc.cfg ; options passed to the command line have priority
+- adjust APP_PLATFORM automatically
