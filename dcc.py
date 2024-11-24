@@ -238,38 +238,22 @@ class APKEditor:
 
 
 class DCC:
-    def __init__(
-        self,
-        input_file,
-        out_file,
-        obfus,
-        dynamic_register,
-        skip_synthetic_methods,
-        allow_init_methods,
-        ignore_app_lib_abis,
-        do_compile,
-        filter_cfg,
-        custom_loader,
-        lib_name,
-        project_dir,
-        source_archive,
-        ndk_build,
-    ):
-        self.input_file = input_file
-        self.out_file = out_file
+    def __init__(self, args, ndk_build):
+        self.input_file = args["input"]
+        self.out_file = args["output"]
         self.is_apk, self.min_sdk = is_apk(self.input_file)
         self.is_dex, self.api = (False, -1) if self.is_apk else is_dex(self.input_file)
-        self.obfus = obfus
-        self.dynamic_register = dynamic_register
-        self.skip_synthetic_methods = skip_synthetic_methods
-        self.allow_init_methods = allow_init_methods
-        self.ignore_app_lib_abis = ignore_app_lib_abis
-        self.do_compile = do_compile
-        self.filter_cfg = filter_cfg
-        self.custom_loader = custom_loader
-        self.lib_name = lib_name
-        self.source_archive = source_archive
-        self.project_dir = project_dir
+        self.obfus = args["obfuscate"]
+        self.dynamic_register = args["dynamic_register"]
+        self.skip_synthetic_methods = args["skip_synthetic"]
+        self.allow_init_methods = args["allow_init"]
+        self.ignore_app_lib_abis = args["force_keep_libs"]
+        self.do_compile = not args["no_build"]
+        self.filter_cfg = args["filter"]
+        self.custom_loader = args["custom_loader"]
+        self.lib_name = args["lib_name"]
+        self.project_dir = args["source_dir"]
+        self.source_archive = args["project_archive"]
         self.ndk_build = ndk_build
 
     def build_project(self):
@@ -487,7 +471,9 @@ class DCC:
                 )
             ]
             if not self.ignore_app_lib_abis:
-                Logger.info(" Adjusting Application.mk file using available abis from apk")
+                Logger.info(
+                    " Adjusting Application.mk file using available abis from apk"
+                )
                 for file_name in zip_file.namelist():
                     if file_name.startswith("lib/"):
                         abi_name = file_name.split("/")[1].strip()
@@ -517,7 +503,7 @@ class DCC:
             dex_files = [dvm.DalvikVMFormat(dex)]
             Logger.info(" using abis defined in Application.mk file")
         pattern_platform = re.compile(r"APP_PLATFORM *:=.*\n")
-        replacement_platform = f"APP_PLATFORM := {self.min_sdk}\n"            
+        replacement_platform = f"APP_PLATFORM := {self.min_sdk}\n"
         with open("project/jni/Application.mk", "r+") as f:
             filedata = f.read()
             if pattern_abi:
@@ -629,15 +615,8 @@ class DCC:
             )
             return
         if self.is_dex:
-            match self.api:
-                case "23":
-                    self.min_sdk = "21"
-                case "25":
-                    self.min_sdk = "24"
-                case "27":
-                    self.min_sdk = "26"
-                case _:
-                    self.min_sdk = "28"          
+            self.min_sdk = get_min_sdk_from_dex(self.api)
+        Logger.info(f" Setting APP_PLATFORM to {self.min_sdk}")
         self.dex_files = self.get_dex_files_and_adjust_mk_files()
         self.compiled_methods, self.method_prototypes, errors = self.compile_dex()
         if errors:
@@ -947,9 +926,12 @@ def is_apk(name):
     try:
         apk = ZipFile(name, mode="r")
         min_sdk = APKEditor.get_info(name, "-min-sdk-version")
-        return all([f in apk.namelist() for f in ("AndroidManifest.xml", "classes.dex")]), min_sdk
+        return (
+            all([f in apk.namelist() for f in ("AndroidManifest.xml", "classes.dex")]),
+            min_sdk,
+        )
     except:
-        return False, "-1"
+        return False, None
 
 
 def is_dex(name):
@@ -960,11 +942,11 @@ def is_dex(name):
         match = pat.match(magic)
         return True, get_api_from_dex(int(match.group(1).decode()))
     except:
-        return False, "-1"
+        return False, None
 
 
-def get_api_from_dex(i):
-    match i:
+def get_api_from_dex(ver):
+    match ver:
         case 35:
             return "23"
         case 37:
@@ -978,7 +960,18 @@ def get_api_from_dex(i):
         case _:
             raise Exception()
 
-
+def get_min_sdk_from_dex(api):
+    match api:
+        case "23":
+            return "21"
+        case "25":
+            return "24"
+        case "27":
+            return "26"
+        case _:
+            return "28"
+                    
+                    
 def backup_jni_project_folder():
     Logger.info(" Backing up jni folder")
     src_path = path.join("project", "jni")
@@ -1085,22 +1078,7 @@ if __name__ == "__main__":
     # Backing up jni folder because modifications will be made in runtime
     backup_jni_folder_path = backup_jni_project_folder()
     try:
-        DCC(
-            args["input"],
-            args["output"],
-            args["obfuscate"],
-            args["dynamic_register"],
-            args["skip_synthetic"],
-            args["allow_init"],
-            args["force_keep_libs"],
-            not args["no_build"],
-            args["filter"],
-            args["custom_loader"],
-            args["lib_name"],
-            args["source_dir"],
-            args["project_archive"],
-            ndk_build,
-        ).main()
+        DCC(args, ndk_build).main()
     except Exception as e:
         Logger.error(" Compile %s failed!" % args["input"], exc_info=True)
         print(f"{str(e)}")
