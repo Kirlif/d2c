@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 import argparse
 import re
-from sys import setrecursionlimit, stderr
+from sys import setrecursionlimit
 from json import load
 from io import BytesIO
 from zipfile import ZipFile
-from os import cpu_count, listdir, makedirs, name, path, remove, sep
+from os import cpu_count, listdir, makedirs, name, path, sep
 from logging import basicConfig, getLogger, INFO
 from androguard.core.analysis import analysis
 from androguard.core.bytecodes import dvm
@@ -238,23 +238,26 @@ class APKEditor:
 
 
 class DCC:
-    def __init__(self, args, ndk_build):
-        self.input_file = args["input"]
-        self.out_file = args["output"]
+    def __init__(self, args_, ndk_build_):
+        self.input_file = args_["input"]
+        self.out_file = args_["output"]
         self.is_apk, self.min_sdk = is_apk(self.input_file)
         self.is_dex, self.api = (False, -1) if self.is_apk else is_dex(self.input_file)
-        self.obfus = args["obfuscate"]
-        self.dynamic_register = args["dynamic_register"]
-        self.skip_synthetic_methods = args["skip_synthetic"]
-        self.allow_init_methods = args["allow_init"]
-        self.ignore_app_lib_abis = args["force_keep_libs"]
-        self.do_compile = not args["no_build"]
-        self.filter_cfg = args["filter"]
-        self.custom_loader = args["custom_loader"]
-        self.lib_name = args["lib_name"]
-        self.project_dir = args["source_dir"]
-        self.source_archive = args["project_archive"]
-        self.ndk_build = ndk_build
+        self.obfus = args_["obfuscate"]
+        self.dynamic_register = args_["dynamic_register"]
+        self.skip_synthetic_methods = args_["skip_synthetic"]
+        self.allow_init_methods = args_["allow_init"]
+        self.ignore_app_lib_abis = args_["force_keep_libs"]
+        self.do_compile = not args_["no_build"]
+        self.filter_cfg = args_["filter"]
+        self.custom_loader = args_["custom_loader"]
+        self.lib_name = args_["lib_name"]
+        self.project_dir = args_["source_dir"]
+        self.source_archive = args_["project_archive"]
+        self.ndk_build = ndk_build_
+        self.dex_files = None
+        self.compiled_methods = None
+        self.method_prototypes = None
 
     def build_project(self):
         check_call(
@@ -397,6 +400,7 @@ class DCC:
 
     def compile_dex(self):
         Logger.info(" Converting...")
+        compiled_method_code, native_method_prototype, errors = None, None, None
         dex_analysis = analysis.Analysis()
         for dex in self.dex_files:
             dex_analysis.add(dex)
@@ -447,9 +451,9 @@ class DCC:
 
     def get_application_class_file(self, classes_folders, application_name):
         if not application_name == "":
-            fileName = application_name.replace(".", sep) + ".smali"
+            file_name = application_name.replace(".", sep) + ".smali"
             for classes_folder in classes_folders:
-                filePath = path.join(classes_folder, fileName)
+                filePath = path.join(classes_folder, file_name)
                 if path.exists(filePath):
                     return filePath
         return ""
@@ -458,7 +462,7 @@ class DCC:
         supported_abis = {"armeabi-v7a", "arm64-v8a", "x86_64", "x86"}
         depreacated_abis = {"armeabi"}
         available_abis = set()
-        pattern_abi = ""
+        pattern_abi, replacement_abi = "", ""
         Logger.info(" Reading dex files")
         if self.is_apk:
             with open(self.input_file, "rb") as f:
@@ -566,7 +570,7 @@ class DCC:
                 )
             )
         if len(export_list) == 0:
-            logger.info("No export methods")
+            Logger.info("No export methods")
             return
         # Generate extern block and export block
         extern_block = []
@@ -703,14 +707,14 @@ class DCC:
                     ],
                     stderr=STDOUT,
                 )
-                loaderDir = path.join(
+                loader_dir = path.join(
                     classes_folders[-1],
                     self.custom_loader[: self.custom_loader.rfind(".")].replace(
                         ".", sep
                     ),
                 )
-                if not path.exists(loaderDir):
-                    makedirs(loaderDir)
+                if not path.exists(loader_dir):
+                    makedirs(loader_dir)
                 copy(
                     temp_loader,
                     path.join(
@@ -793,7 +797,7 @@ def create_tmp_directory():
 
 def get_random_str(length=8):
     characters = ascii_letters + digits
-    result = "".join(choice(characters) for i in range(length))
+    result = "".join(choice(characters) for _ in range(length))
     return result
 
 
@@ -822,37 +826,11 @@ def clean_tmp_directory():
     try:
         Logger.info(" Removing .tmp folder")
         rmtree(tmpdir)
-    except OSError as e:
+    except OSError:
         run(["rd", "/s", "/q", tmpdir], shell=True)
 
 
-def change_min_sdk(command=list(), min_sdk="21", update_existing=True):
-    if "--min-sdk-version" in command:
-        if update_existing:
-            min_sdk_value_index = command.index("--min-sdk-version") + 1
-            command[min_sdk_value_index] = min_sdk
-        else:
-            return
-    else:
-        command.append("--min-sdk-version")
-        command.append(min_sdk)
-
-
-def change_max_sdk(command=list(), max_sdk="33", update_existing=True):
-    if "--max-sdk-version" in command:
-        if update_existing:
-            max_sdk_value_index = command.index("--max-sdk-version") + 1
-            command[max_sdk_value_index] = max_sdk
-        else:
-            return
-    else:
-        command.append("--max-sdk-version")
-        command.append(max_sdk)
-
-
 def sign(unsigned_apk, signed_apk):
-    signature = {}
-    keystore = ""
     Logger.info(f" Signing {unsigned_apk} -> {signed_apk}")
     with open("dcc.cfg") as fp:
         dcc_cfg = load(fp)
@@ -868,47 +846,18 @@ def sign(unsigned_apk, signed_apk):
         )
         move_unsigned(unsigned_apk, signed_apk)
         return
-    if not path.exists(keystore) or not path.isfile(keystore):
+    if not path.isfile(keystore):
         Logger.error(" KeyStore not found in defined path or not recognized as a file")
         move_unsigned(unsigned_apk, signed_apk)
         return
-    command = [
-        "java",
-        "-jar",
-        SIGNJAR,
-        "sign",
-        "--in",
-        unsigned_apk,
-        "--out",
-        signed_apk,
-        "--ks",
-        keystore,
-        "--ks-key-alias",
-        signature["alias"],
-        "--ks-pass",
-        "pass:" + signature["keystore_pass"],
-        "--key-pass",
-        "pass:" + signature["store_pass"],
-    ]
-    command.append("--v1-signing-enabled")
-    command.append("true" if signature["v1_enabled"] is True else "false")
-    command.append("--v2-signing-enabled")
-    command.append("true" if signature["v2_enabled"] is True else "false")
-    command.append("--v3-signing-enabled")
-    command.append("true" if signature["v3_enabled"] is True else "false")
-    command.append("--v4-signing-enabled")
-    command.append("false")
-    if signature["v1_enabled"] is True:
-        change_min_sdk(command, "21")
-        change_max_sdk(command, "23")
-        command.append("--v1-signer-name")
-        command.append("ANDROID")
-    if signature["v2_enabled"] is True:
-        change_min_sdk(command, "24", False)
-        change_max_sdk(command, "26")
-    if signature["v3_enabled"] is True:
-        change_min_sdk(command, "28", False)
-        change_max_sdk(command, "29")
+    command = ["java", "-jar", SIGNJAR, "sign", "--in", unsigned_apk, "--out", signed_apk,
+               "--ks", keystore, "--ks-key-alias", signature["alias"],
+               "--ks-pass", "pass:" + signature["keystore_pass"],
+               "--key-pass", "pass:" + signature["store_pass"],
+               "--v1-signing-enabled", "true" if signature["v1_enabled"] is True else "false",
+               "--v2-signing-enabled", "true" if signature["v2_enabled"] is True else "false",
+               "--v3-signing-enabled", "true" if signature["v3_enabled"] is True else "false",
+               "--v4-signing-enabled", "false", "--verity-enabled", "false"]
     try:
         check_call(command, stderr=STDOUT)
     except Exception as ex:
@@ -922,10 +871,10 @@ def move_unsigned(unsigned_apk, signed_apk):
     copy(unsigned_apk, signed_apk)
 
 
-def is_apk(name):
+def is_apk(name_):
     try:
-        apk = ZipFile(name, mode="r")
-        min_sdk = APKEditor.get_info(name, "-min-sdk-version")
+        apk = ZipFile(name_, mode="r")
+        min_sdk = APKEditor.get_info(name_, "-min-sdk-version")
         return (
             all([f in apk.namelist() for f in ("AndroidManifest.xml", "classes.dex")]),
             min_sdk,
@@ -934,10 +883,10 @@ def is_apk(name):
         return False, None
 
 
-def is_dex(name):
+def is_dex(name_):
     pat = re.compile(b"\x64\x65\x78\x0a\x30(\\d\\d)\x00")
     try:
-        with open(name, "rb") as f:
+        with open(name_, "rb") as f:
             magic = f.read()[:8]
         match = pat.match(magic)
         return True, get_api_from_dex(int(match.group(1).decode()))
@@ -1055,7 +1004,6 @@ if __name__ == "__main__":
         help="Converted cpp code, compressed as zip output file. Works with --no-build",
     )
     args = vars(parser.parse_args())
-    dcc_cfg = {}
     with open("dcc.cfg") as fp:
         dcc_cfg = load(fp)
     if "ndk_dir" in dcc_cfg and path.exists(dcc_cfg["ndk_dir"]):
