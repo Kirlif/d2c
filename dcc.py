@@ -402,6 +402,9 @@ class DCC:
         Logger.info(" Converting...")
         compiled_method_code, native_method_prototype, errors = None, None, None
         dex_analysis = analysis.Analysis()
+        native_method_prototype = {}
+        compiled_method_code = {}
+        errors = []
         for dex in self.dex_files:
             dex_analysis.add(dex)
         for dex in self.dex_files:
@@ -412,9 +415,6 @@ class DCC:
                 self.allow_init_methods,
             )
             compiler = Dex2C(dex, dex_analysis, self.obfus, self.dynamic_register)
-            native_method_prototype = {}
-            compiled_method_code = {}
-            errors = []
             for m in dex.get_methods():
                 method_triple = get_method_triple(m)
                 jni_longname = JniLongName(*method_triple)
