@@ -506,6 +506,7 @@ class DCC:
                 dex = f.read()
             dex_files = [dvm.DalvikVMFormat(dex)]
             Logger.info(" using abis defined in Application.mk file")
+        Logger.info(f" Setting APP_PLATFORM to {self.min_sdk}")
         pattern_platform = re.compile(r"APP_PLATFORM *:=.*\n")
         replacement_platform = f"APP_PLATFORM := {self.min_sdk}\n"
         with open("project/jni/Application.mk", "r+") as f:
@@ -620,7 +621,6 @@ class DCC:
             return
         if self.is_dex:
             self.min_sdk = get_min_sdk_from_dex(self.api)
-        Logger.info(f" Setting APP_PLATFORM to {self.min_sdk}")
         self.dex_files = self.get_dex_files_and_adjust_mk_files()
         self.compiled_methods, self.method_prototypes, errors = self.compile_dex()
         if errors:
@@ -774,7 +774,7 @@ class DCC:
                 with open(app_class_file_path, "w") as file:
                     file.writelines(content)
             unsigned_apk = APKEditor.compile_apk(self.decompiled_dir)
-            sign(unsigned_apk, self.out_file)
+            sign(unsigned_apk, self.out_file, int(self.min_sdk))
             Logger.info(f" Completed: {self.out_file}")
 
 
@@ -830,12 +830,13 @@ def clean_tmp_directory():
         run(["rd", "/s", "/q", tmpdir], shell=True)
 
 
-def sign(unsigned_apk, signed_apk):
+def sign(unsigned_apk, signed_apk, min_sdk):
     Logger.info(f" Signing {unsigned_apk} -> {signed_apk}")
     with open("dcc.cfg") as fp:
         dcc_cfg = load(fp)
     signature = dcc_cfg["signature"]
     keystore = signature["keystore_path"]
+    signature["v1_enabled"] = signature["v1_enabled"] and min_sdk < 24
     if (
         signature["v1_enabled"] is False
         and signature["v2_enabled"] is False
@@ -919,8 +920,8 @@ def get_min_sdk_from_dex(api):
             return "26"
         case _:
             return "28"
-                    
-                    
+
+
 def backup_jni_project_folder():
     Logger.info(" Backing up jni folder")
     src_path = path.join("project", "jni")
