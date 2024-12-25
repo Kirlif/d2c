@@ -11,8 +11,13 @@
    ```bash
    pip3 install -U --user 'lxml>=4.3.0'
    ```
+   on Termux:
+      ```bash
+   pkg install libxml2 libxslt
+   CFLAGS="-O0" pip install -U lxml
+   ```
 3. JRE/JDK
-3. Android NDK
+4. Android NDK
 
 ### Installation
    ```bash
@@ -32,3 +37,22 @@
 - --input only is required 
 - all options can be configured in dcc.cfg ; options passed to the command line have priority
 - adjust APP_PLATFORM automatically
+
+### Settings
+
+|  Cli  |  Config  |  Default  |
+| ----- | -------- |  -------- |
+|-i, --input|||
+| -o, --output|output|output.(apk\|zip)|
+|-p, --obfuscate|obfuscate|false|
+|-d, --dynamic-register|dynamic_register|false|
+|-s, --skip-synthetic|skip_synthetic|false|
+|-a, --allow-init|allow_init|false|
+|-k, --force-keep-libs|force_keep_libs|false|
+|-b, --no-build|no_build|false|
+|-f, --filter|filter|filter.txt|
+|-c, --custom-loader|custom_loader|amimo.dcc.DccApplication|
+|-r, --force-custom-loader|force_custom_loader|false
+|-l, --lib-name|lib_name|stub|
+|-e, --source-dir|source_dir||
+|-z, --project-archive|project_archive|project-source.zip|
