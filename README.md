@@ -43,7 +43,7 @@
 |  Cli  |  Config  |  Default  |
 | ----- | -------- |  -------- |
 |-i, --input|||
-| -o, --output|output|output.(apk\|zip)|
+|-o, --output|output|output.(apk\|zip)|
 |-p, --obfuscate|obfuscate|false|
 |-d, --dynamic-register|dynamic_register|false|
 |-s, --skip-synthetic|skip_synthetic|false|
@@ -56,3 +56,4 @@
 |-l, --lib-name|lib_name|stub|
 |-e, --source-dir|source_dir||
 |-z, --project-archive|project_archive|project-source.zip|
+|--ollvm|ollvm|false|

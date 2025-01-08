@@ -6,7 +6,7 @@ from sys import setrecursionlimit
 from json import load
 from io import BytesIO
 from zipfile import ZipFile
-from os import cpu_count, listdir, makedirs, name, path, sep
+from os import cpu_count, listdir, makedirs, name, path, sep, urandom
 from logging import basicConfig, getLogger, INFO
 from androguard.core.analysis import analysis
 from androguard.core.bytecodes import dvm
@@ -255,6 +255,7 @@ class DCC:
         self.lib_name = args_["lib_name"]
         self.project_dir = args_["source_dir"]
         self.source_archive = args_["project_archive"]
+        self.enable_ollvm = args_["ollvm"]
         self.ndk_build = ndk_build_
         self.dex_files = None
         self.compiled_methods = None
@@ -526,11 +527,24 @@ class DCC:
             Logger.error(" Invalid lib_name value in dcc.cfg")
             return
         with open("project/jni/Android.mk", "r+") as f:
-            android_mk_file = f.read()
+            android_mk_file_lines = f.readlines()
+            android_mk_file = "".join(android_mk_file_lines)
             match = pattern.search(android_mk_file)
-            filedata = android_mk_file.replace(match.group(), replacement)
+            if match:
+                android_mk_file = android_mk_file.replace(match.group(), replacement)
+                android_mk_file_lines = android_mk_file.splitlines(keepends=True)
+            if self.enable_ollvm:
+                Logger.warning("You've enabled ollvm flag, make sure your NDK supports it!")
+                random_seed = f"0x{urandom(16).hex()}"
+                ollvm_flags = f"LOCAL_CFLAGS := -fvisibility=hidden -mllvm -fla -mllvm -split -mllvm -split_num=5 -mllvm -sub -mllvm -sub_loop=5 -mllvm -sobf -mllvm -bcf_loop=5 -mllvm -bcf_prob=100 -mllvm -aesSeed={random_seed}"
+                Logger.info(f"Random Seed: {random_seed}")
+                for index, line in enumerate(android_mk_file_lines):
+                    if "LOCAL_LDLIBS := -llog" in line:
+                        android_mk_file_lines.insert(index + 1, ollvm_flags + '\n')
+                        break
+
             f.seek(0)
-            f.write(filedata)
+            f.writelines(android_mk_file_lines)
             f.truncate()
         return dex_files
 
@@ -1008,6 +1022,12 @@ if __name__ == "__main__":
         "--project-archive",
         default="project-source.zip",
         help="Converted cpp code, compressed as zip output file. Works with --no-build",
+    )
+    parser.add_argument(
+        "--ollvm",
+        action="store_true",
+        default=False,
+        help="Enable OLLVM"
     )
     args = vars(parser.parse_args())
     with open("dcc.cfg") as fp:
